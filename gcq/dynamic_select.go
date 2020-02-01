@@ -1,7 +1,9 @@
-package goconquer
+package gcq
+
+import "os"
 
 type DynamicSelect struct {
-	Kill         chan interface{}
+	Kill         chan os.Signal
 	OnKillAction func()
 	Channels     []ChannelEntry
 	internal     chan dsWrapper
@@ -18,7 +20,7 @@ type dsWrapper struct {
 }
 
 func (d *DynamicSelect) Forever() {
-	d.internal = make(chan interface{}, 1)
+	d.internal = make(chan dsWrapper, 1)
 	go d.startListeners()
 	for {
 		select {
