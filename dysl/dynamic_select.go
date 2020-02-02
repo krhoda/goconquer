@@ -78,6 +78,7 @@ func NewDynamicSelect(onKillAction func(), channels []ChannelEntry) *DynamicSele
 		Channels:     channels,
 		internal:     i,
 		onClose:      o,
+		alive:        true,
 	}
 }
 
@@ -92,8 +93,8 @@ func (d *DynamicSelect) Forever() {
 
 	for {
 		// If a kill command is heard in any of the operations...
-		ok := d.stateMachine()
-		if !ok {
+		d.alive = d.stateMachine()
+		if !d.alive {
 			// ...bail out!
 			return
 		}
