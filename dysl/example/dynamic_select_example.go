@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/krhoda/goconquer/gcq"
+	"github.com/krhoda/goconquer/dysl"
 )
 
 func trivial(i interface{}) {
@@ -22,7 +22,7 @@ func main() {
 	ch1 := make(chan interface{})
 	ch2 := make(chan interface{})
 
-	chSl := []gcq.ChannelEntry{
+	chSl := []dysl.ChannelEntry{
 		{
 			Channel: ch1,
 			Handler: trivial,
@@ -33,7 +33,7 @@ func main() {
 		},
 	}
 
-	ds := gcq.DynamicSelect{
+	ds := dysl.DynamicSelect{
 		Kill:         k,
 		OnKillAction: ka,
 		Channels:     chSl,
