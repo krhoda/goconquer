@@ -55,9 +55,32 @@ func main() {
 
 	go ds.Forever()
 
-	time.Sleep(time.Second * 10)
-	log.Println("Main thread ending action...")
+	time.Sleep(time.Second * 5)
+	log.Println("Main thread building Rune Bot...")
+	ch3 := make(chan interface{})
+	ce3 := dysl.ChannelEntry{
+		Channel: ch3,
+		Handler: dysl.HandlerEntry{
+			Func:     bots.HandleRuneBot,
+			Blocking: true,
+		},
+		OnClose: dysl.OnCloseEntry{
+			Func:     func() {},
+			Blocking: true,
+		},
+	}
+
+	go func() {
+		ds.Load <- ce3
+	}()
+
+	go bots.MakeRuneBot(ch3, ds.Kill)
+
+	log.Println("Main thread has dispatch load message and rune bot...")
+
+	time.Sleep(time.Second * 30)
+	log.Println("...Main thread turning off other sevices...")
 	close(ds.Kill)
 	time.Sleep(time.Second * 5)
-	log.Println("...Main thread exiting")
+	log.Println("...Main thread exiting, other services off.")
 }

@@ -12,7 +12,7 @@ func MakeStringBot(send, done chan interface{}) {
 	quips := []string{
 		"...History teaches us we do not learn from history",
 		"If traveling salesrep is visiting twenty cities and....",
-		"...they must cross seven bridges in Kroneburg but only...",
+		"...they must cross seven bridges in Konigsburg but only...",
 		"...Lorus impsum...",
 	}
 
@@ -20,7 +20,7 @@ func MakeStringBot(send, done chan interface{}) {
 		select {
 		case <-done:
 			return
-		case <-time.After(time.Second * 5):
+		case <-time.After(time.Second * time.Duration(rand.Intn(5))):
 			log.Println("Going To Send In String Bot!")
 			quip := quips[rand.Intn(len(quips))]
 			send <- quip
@@ -39,22 +39,28 @@ func HandleStringBot(i interface{}) {
 	log.Printf("String bot is saying something odd... %s\n", x)
 }
 
+const myPi = 3.14
+const myGolden = 1.62
+const myAvo = 6.03
+const myEuler = 2.72
+const myGrav = 9.81
+
 func MakeMathBot(send, done chan interface{}) {
 	defer close(send)
 
 	quips := []float64{
-		3.14,
-		1.62,
-		6.03,
-		2.79,
-		9.81,
+		myPi,
+		myGolden,
+		myAvo,
+		myEuler,
+		myGrav,
 	}
 
 	for {
 		select {
 		case <-done:
 			return
-		case <-time.After(time.Second * 2):
+		case <-time.After(time.Second * time.Duration(rand.Intn(5))):
 			log.Println("Going To Send In Math Bot!")
 			quip := quips[rand.Intn(len(quips))]
 			send <- quip
@@ -71,17 +77,44 @@ func HandleMathBot(i interface{}) {
 	}
 
 	switch x {
-	case 3.14:
+	case myPi:
 		log.Printf("Math bot is a big fan of pastries: %f\n", x)
-	case 1.62:
+	case myGolden:
 		log.Printf("Math bot says you're golden: %f\n", x)
-	case 6.03:
+	case myAvo:
 		log.Printf("Math bot is molling something over: %f\n", x)
-	case 2.72:
+	case myEuler:
 		log.Printf("Math bot says Euler is a ruler %f\n", x)
-	case 9.81:
+	case myGrav:
 		log.Printf("Math bot says watch your step: %f\n", x)
 	default:
 		log.Printf("Math bot learned a new number: %f\nHorrifying.\n", x)
 	}
+}
+
+func MakeRuneBot(send, done chan interface{}) {
+	defer close(send)
+
+	letterRunes := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-time.After(time.Second * time.Duration(rand.Intn(5))):
+			log.Println("Going To Send In Rune Bot!")
+			b := letterRunes[rand.Intn(len(letterRunes))]
+			send <- b
+		}
+	}
+}
+
+func HandleRuneBot(i interface{}) {
+	x, ok := i.(rune)
+	if !ok {
+		log.Printf("I don't know what rune bot said:\n%v\n", i)
+		return
+	}
+
+	log.Printf("Rune bot said '%s'\nFacinating...\n", string(x))
 }
