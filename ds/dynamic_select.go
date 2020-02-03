@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 )
 
 // DynamicSelect is a concurrency control structure likenable to a dynamic generic select statement with sane defaults.
@@ -15,31 +16,41 @@ import (
 // This may seem overly cautious, but a stream reading a message every few milliseconds will noisly ignore numerous kill commands if all channels are in a flat select.
 // Note issueing a kill command will not close the channels being listened to.
 type DynamicSelect struct {
-	// Kill is used to signal DynamicSelect to halt.
-	// Internal operation ensures that once issued, a kill
-	// command will be the next message processed.
-	Kill chan interface{}
-
 	// Callback used when Kill is closed/has a message.
 	OnKillAction func()
+
+	// A list of channels to manange and how to manage them
+	Channels []ChannelEntry
+
+	// Aggregator used to pass through only one message at a time.
+	aggregator chan dsWrapper
 
 	// A channel used to load additional cases into the DynamicSelect during runtime.
 	load chan ChannelEntry
 
-	// A list of channels to manange and how to manage them
-	Channels []ChannelEntry
-	// Aggregator used to pass through only one message at a time.
-	aggregator chan dsWrapper
+	// kill is used to signal DynamicSelect to halt.
+	// Internal operation ensures that once issued, a kill
+	// command will be the next message processed.
+	kill chan interface{}
 
-	// done is used to inform all Listeners kill was heard.
+	// Used to ensure kill isn't called multiple times.
+	killGuard chan interface{}
+
+	// Prevents multiple kill commands, and alive getting breifly overriden by a race condition.
+	killHeard bool
+
+	// done is an internal kill chan;
 	done chan interface{}
 
 	// Aggregator used to pass through priority messages.
 	priorityAggregator chan dsWrapper
+
 	// Aggregator used to pass through close notifications.
 	onClose chan dsWrapper
+
 	// alive is used to inform listeners if the main routine has exited.
 	alive bool
+
 	// listenerWG is used in clean up to make sure all children process have exited.
 	listenerWG sync.WaitGroup
 }
@@ -93,19 +104,26 @@ func NewDynamicSelect(onKillAction func(), channels []ChannelEntry) *DynamicSele
 	a := make(chan dsWrapper)
 	p := make(chan dsWrapper)
 	d := make(chan interface{})
-	k := make(chan interface{})
+	k := make(chan interface{}, 1)
+	kg := make(chan interface{}, 1)
+
+	// prime the guard.
+	kg <- unit
+
 	l := make(chan ChannelEntry)
 	o := make(chan dsWrapper)
 	return &DynamicSelect{
-		Kill:               k,
 		OnKillAction:       onKillAction,
 		load:               l,
 		Channels:           channels,
 		aggregator:         a,
+		alive:              true,
 		done:               d,
+		kill:               k,
+		killGuard:          kg,
+		killHeard:          false,
 		priorityAggregator: p,
 		onClose:            o,
-		alive:              true,
 	}
 }
 
@@ -131,6 +149,25 @@ func (d *DynamicSelect) Forever() {
 	}
 }
 
+// IsAlive reports if the DynamicSelect is running.
+func (d *DynamicSelect) IsAlive() bool {
+	return d.alive && !d.killHeard
+}
+
+// Kill issues a non-blocking, safe kill command to the dynamic select.
+func (d *DynamicSelect) Kill() {
+	if !d.IsAlive() {
+		return
+	}
+
+	<-d.killGuard
+	if d.IsAlive() {
+		d.killHeard = true
+		d.kill <- unit
+	}
+	d.killGuard <- unit
+}
+
 // Load either blocks until the given ChannelEntry is loaded into a running DynamicSelect
 // or informs via error that the DynamicSelect has halted.
 func (d *DynamicSelect) Load(c ChannelEntry) error {
@@ -141,6 +178,9 @@ func (d *DynamicSelect) Load(c ChannelEntry) error {
 	return fmt.Errorf("DynamicSelect has either halted or is uninitialized.")
 }
 
+// global empty var.
+var unit interface{}
+
 // Once all listeners hit done, exit.
 func (d *DynamicSelect) shutDown() {
 	if r := recover(); r != nil {
@@ -149,8 +189,8 @@ func (d *DynamicSelect) shutDown() {
 	}
 
 	// just making sure.
+	d.killHeard = true
 	d.alive = false
-	// alert waiting listeners.
 	close(d.done)
 
 	// Tell the outside world we're done.
@@ -166,13 +206,12 @@ func (d *DynamicSelect) shutDown() {
 	close(d.aggregator)
 	close(d.priorityAggregator)
 	close(d.onClose)
-	close(d.load)
 }
 
 // First, check if a kill command was heard during the previous process...
 func (d *DynamicSelect) stateMachine() bool {
 	select {
-	case <-d.Kill:
+	case <-d.kill:
 		return false
 
 	default:
@@ -191,7 +230,7 @@ func (d *DynamicSelect) priorityMessageState() bool {
 		d.handleInternal(dsw)
 		return true
 
-	case <-d.Kill:
+	case <-d.kill:
 		return false
 
 	default:
@@ -225,7 +264,7 @@ func (d *DynamicSelect) allMessageState() bool {
 		d.handleOnClose(dsw)
 		return true
 
-	case <-d.Kill:
+	case <-d.kill:
 		return false
 	}
 }
@@ -256,7 +295,6 @@ func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
 		}
 
 		// Otherwise pass to main handler
-		var unit interface{}
 		lastMessage := dsWrapper{
 			Index:  i,
 			Target: unit,
@@ -270,7 +308,7 @@ func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
 	for {
 		// If using non-blocking handlers, we must check the select
 		// we are a proxy of is still alive after the last process.
-		if !d.alive {
+		if !d.IsAlive() {
 			return
 		}
 
@@ -359,6 +397,18 @@ func (d *DynamicSelect) drainChannels() {
 		}
 	}()
 
+	// We know that killHeard is set to true so:
+	go func() {
+
+		for {
+			_, ok := <-d.kill
+			if ok {
+				continue
+			}
+			return
+		}
+	}()
+
 	// At this point, any call to d.Load will return an error, so we can safely
 	// Discard these as outstanding requests that will never be filled.
 	go func() {
@@ -369,5 +419,14 @@ func (d *DynamicSelect) drainChannels() {
 			}
 			return
 		}
+	}()
+
+	// Stack any outstanding attempts to call kill or load
+	go func() {
+		time.Sleep(time.Second)
+		// Then close all channels that don't point internally.
+		close(d.kill)
+		close(d.killGuard)
+		close(d.load)
 	}()
 }

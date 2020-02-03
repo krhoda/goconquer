@@ -9,6 +9,9 @@ import (
 )
 
 var (
+	// my favorite var.
+	unit interface{}
+
 	lesserHeard, greaterHeard, unblockingHeard = false, false, false
 	cHandHeard, cCloseHeard, pcCloseHeard      = false, false, false
 
@@ -37,7 +40,7 @@ func reset() {
 	cHandClosed, cCloseClosed, pcCloseClosed = false, false, false
 
 	lesserChannel = ds.ChannelEntry{
-		Channel: make(chan interface{}),
+		Channel: make(chan interface{}, 5),
 		Handler: ds.HandlerEntry{
 			Func: func(i interface{}) {
 				lesserHeard = true
@@ -55,7 +58,7 @@ func reset() {
 	}
 
 	greaterChannel = ds.ChannelEntry{
-		Channel: make(chan interface{}),
+		Channel: make(chan interface{}, 5),
 		Handler: ds.HandlerEntry{
 			Func: func(i interface{}) {
 				greaterHeard = true
@@ -74,7 +77,7 @@ func reset() {
 	}
 
 	unblockingChannel = ds.ChannelEntry{
-		Channel: make(chan interface{}),
+		Channel: make(chan interface{}, 5),
 		Handler: ds.HandlerEntry{
 			Func: func(i interface{}) {
 				unblockingHeard = true
@@ -92,7 +95,7 @@ func reset() {
 	}
 
 	cHandChannel = ds.ChannelEntry{
-		Channel: make(chan interface{}),
+		Channel: make(chan interface{}, 5),
 		Handler: ds.HandlerEntry{
 			Func: func(i interface{}) {
 				cHandHeard = true
@@ -110,7 +113,7 @@ func reset() {
 	}
 
 	cCloseChannel = ds.ChannelEntry{
-		Channel: make(chan interface{}),
+		Channel: make(chan interface{}, 5),
 		Handler: ds.HandlerEntry{
 			Func: func(i interface{}) {
 				cCloseHeard = true
@@ -128,7 +131,7 @@ func reset() {
 	}
 
 	pcCloseChannel = ds.ChannelEntry{
-		Channel: make(chan interface{}),
+		Channel: make(chan interface{}, 5),
 		Handler: ds.HandlerEntry{
 			Func: func(i interface{}) {
 				pcCloseHeard = true
@@ -161,15 +164,14 @@ func TestKill(t *testing.T) {
 
 	selectMgr := ds.NewDynamicSelect(ka, []ds.ChannelEntry{lesserChannel})
 
-	go selectMgr.Forever()
-	selectMgr.Kill <- "Kill Command."
-
-	time.Sleep(time.Second / 100)
+	selectMgr.Kill()
+	selectMgr.Forever()
 
 	if !killActionTest {
 		t.Errorf("Kill Action wasn't called!")
 	}
 
+	time.Sleep(time.Second / 100)
 	if !lesserClosed {
 		t.Errorf("Child listener did not clean up!")
 	}
@@ -185,10 +187,8 @@ func TestKillOverPriorityMessage(t *testing.T) {
 
 	selectMgr := ds.NewDynamicSelect(ka, []ds.ChannelEntry{greaterChannel})
 
-	go func() {
-		selectMgr.Kill <- "Kill Command."
-		greaterChannel.Channel <- "This should not be heard."
-	}()
+	selectMgr.Kill()
+	greaterChannel.Channel <- "This should not be heard."
 
 	selectMgr.Forever()
 
