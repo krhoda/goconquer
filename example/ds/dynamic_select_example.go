@@ -45,16 +45,19 @@ func main() {
 
 	sMgr := ds.NewDynamicSelect(ka, chSl)
 
+	ready, done := make(chan interface{}), make(chan interface{})
+
 	go func() {
 		k := make(chan os.Signal, 1)
 		<-k
-		close(sMgr.Kill)
+		close(done)
+		sMgr.Kill()
 	}()
 
-	go bots.MakeStringBot(ch1, sMgr.Kill)
-	go bots.MakeMathBot(ch2, sMgr.Kill)
+	go bots.MakeStringBot(ch1, done)
+	go bots.MakeMathBot(ch2, done)
 
-	go sMgr.Forever()
+	go sMgr.Forever(ready)
 
 	time.Sleep(time.Second * 5)
 	log.Println("Main thread building Rune Bot...")
@@ -79,13 +82,13 @@ func main() {
 		}
 	}()
 
-	go bots.MakeRuneBot(ch3, sMgr.Kill)
+	go bots.MakeRuneBot(ch3, done)
 
 	log.Println("Main thread has dispatch load message and rune bot...")
 	time.Sleep(time.Second * 30)
 
 	log.Println("...Main thread turning off other sevices...")
-	close(sMgr.Kill)
+	sMgr.Kill()
 
 	time.Sleep(time.Second * 5)
 	log.Println("...Main thread exiting, other services off.")
