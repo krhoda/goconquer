@@ -51,6 +51,9 @@ type DynamicSelect struct {
 	// alive is used to inform listeners if the main routine has exited.
 	alive bool
 
+	// running is used to accept loads to prevent client deadlocks.
+	running bool
+
 	// listenerWG is used in clean up to make sure all children process have exited.
 	listenerWG sync.WaitGroup
 }
@@ -128,16 +131,20 @@ func NewDynamicSelect(onKillAction func(), channels []ChannelEntry) *DynamicSele
 }
 
 // Forever runs the DynamicSelect with its current Channels.
+// Will close ready once initialized.
 // For each channel listed, it will call handlers when messages are received
 // and call onClose functions for when they are closed.
 // If a message is heard on the DynamicSelect's Kill channel, the select is halted and
 // all contained channels are closed.
-func (d *DynamicSelect) Forever() {
+func (d *DynamicSelect) Forever(ready chan interface{}) {
 	// Set up defer for clean up:
 	defer d.shutDown()
 
+	d.running = true
+
 	// Start funneling messages into aggregator.
 	d.startListeners()
+	close(ready)
 
 	for {
 		// If a kill command is heard in any of the operations...
@@ -171,11 +178,16 @@ func (d *DynamicSelect) Kill() {
 // Load either blocks until the given ChannelEntry is loaded into a running DynamicSelect
 // or informs via error that the DynamicSelect has halted.
 func (d *DynamicSelect) Load(c ChannelEntry) error {
-	if d.alive {
-		d.load <- c
-		return nil
+	if !d.IsAlive() {
+		return fmt.Errorf("DynamicSelect has either halted or is uninitialized.")
 	}
-	return fmt.Errorf("DynamicSelect has either halted or is uninitialized.")
+
+	if !d.running {
+		return fmt.Errorf("DynamicSelect has not been started, this could otherwise deadlock.")
+	}
+
+	d.load <- c
+	return nil
 }
 
 // global empty var.
@@ -191,6 +203,7 @@ func (d *DynamicSelect) shutDown() {
 	// just making sure.
 	d.killHeard = true
 	d.alive = false
+	d.running = false
 	close(d.done)
 
 	// Tell the outside world we're done.
