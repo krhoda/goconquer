@@ -10,9 +10,10 @@ import (
 // Also allows additional case statements to be loaded in during runtime.
 // Once running, can accept additional ChannelEntry structs to add to the internal cases.
 // The increased flexibility comes with the caveat that it can only deal in interfaces.
-// If the cost of serialization is also too high, consider implementing a well-typed version of the select in the Forever/StateMachine functions.
+// If the cost of reflection is too high, consider implementing a well-typed version of the select in the Forever/StateMachine functions.
 // The tiered structure ensures that first Kill commands are read, then Kill commands and one-time events (in this case, channels closing) are attended to, and finally the all sources of messages are consumed.
 // This may seem overly cautious, but a stream reading a message every few milliseconds will noisly ignore numerous kill commands if all channels are in a flat select.
+// Note issueing a kill command will not close the channels being listened to.
 type DynamicSelect struct {
 	// Kill is used to signal DynamicSelect to halt.
 	// Internal operation ensures that once issued, a kill
@@ -53,20 +54,29 @@ type ChannelEntry struct {
 }
 
 // HandlerEntry is a function that will be called with the message emitted
-// by the associated channel. Blocking determines whether it will be run
-// in a goroutine (Blocking = false) or synchronously (Blocking = true), the
-// later blocking reading messages from the queue.
-// If priority is set to true. will be read during the priority phase.
+// by the associated channel.
+
 type HandlerEntry struct {
-	Func     func(i interface{})
+	Func func(i interface{})
+
+	// Blocking determines whether it will be run in a goroutine (Blocking = false)
+	// or synchronously (Blocking = true), the latter blocking reading other messages
+	// set to Blocking from the queue.
+	// A non-Blocking call may occur duing a Blocking call.
+	// Two Blocking calls will never be run concurrently.
 	Blocking bool
+
+	// If priority is set to true. will be checked for during the priority phase.
+	// Non-blocking calls are processed faster than Priority calls. Setting both to
+	// true will result in Non-blocking behavior.
 	Priority bool
 }
 
 // OnCloseEntry is a function that will be called the associated channel closes.
 // Blocking determines whether it will be run in a goroutine (Blocking = false) or
-// synchronously (Blocking = true), the latter blocking reading messages from the queue.
-// If not blocking, is read during the priority tier.
+// synchronously (Blocking = true), the latter blocking reading other Blocking
+// messages from the queue. If not Blocking, is read during the priority tier.
+// It will be called during the shut down of DynamicSelect.
 type OnCloseEntry struct {
 	Func     func()
 	Blocking bool
@@ -109,7 +119,7 @@ func (d *DynamicSelect) Forever() {
 	defer d.shutDown()
 
 	// Start funneling messages into aggregator.
-	go d.startListeners()
+	d.startListeners()
 
 	for {
 		// If a kill command is heard in any of the operations...
@@ -146,6 +156,7 @@ func (d *DynamicSelect) shutDown() {
 	// Tell the outside world we're done.
 	d.OnKillAction()
 
+	// Handle outstanding requests / a flood of closed messages.
 	go d.drainChannels()
 
 	// Wait for internal listeners to halt.
@@ -206,6 +217,7 @@ func (d *DynamicSelect) allMessageState() bool {
 		// Add next
 		d.Channels = append(d.Channels, next)
 		// Create New Listener
+		d.listenerWG.Add(1)
 		go d.startListener(nextIndex, next)
 		return true
 
@@ -222,6 +234,7 @@ func (d *DynamicSelect) startListeners() {
 	// For each channel and handler
 	for index, entry := range d.Channels {
 		// Start a go routine with the current channel
+		d.listenerWG.Add(1)
 		go d.startListener(index, entry)
 	}
 }
@@ -229,7 +242,6 @@ func (d *DynamicSelect) startListeners() {
 // Start listener either passes messages to the aggregator channels or calls handlers locally
 // Depending on the entry supplied.
 func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
-	d.listenerWG.Add(1)
 
 	// Clean up on close.
 	defer func() {
@@ -338,8 +350,9 @@ func (d *DynamicSelect) drainChannels() {
 
 	go func() {
 		for {
-			_, ok := <-d.onClose
+			x, ok := <-d.onClose
 			if ok {
+				d.handleOnClose(x)
 				continue
 			}
 			return

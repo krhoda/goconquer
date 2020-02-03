@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -25,7 +26,7 @@ func main() {
 				Blocking: false,
 			},
 			OnClose: ds.OnCloseEntry{
-				Func:     func() {},
+				Func:     func() { fmt.Println("Closing String bot!") },
 				Blocking: false,
 			},
 		},
@@ -33,10 +34,10 @@ func main() {
 			Channel: ch2,
 			Handler: ds.HandlerEntry{
 				Func:     bots.HandleMathBot,
-				Blocking: false,
+				Blocking: true,
 			},
 			OnClose: ds.OnCloseEntry{
-				Func:     func() {},
+				Func:     func() { fmt.Println("Closing math bot!") },
 				Blocking: false,
 			},
 		},
@@ -62,11 +63,12 @@ func main() {
 		Channel: ch3,
 		Handler: ds.HandlerEntry{
 			Func:     bots.HandleRuneBot,
-			Blocking: false,
+			Blocking: true,
+			Priority: true,
 		},
 		OnClose: ds.OnCloseEntry{
-			Func:     func() {},
-			Blocking: false,
+			Func:     func() { fmt.Println("Closing RUNE bot!") },
+			Blocking: true,
 		},
 	}
 
