@@ -17,10 +17,10 @@ import (
 // Note issueing a kill command will not close the channels being listened to.
 type DynamicSelect struct {
 	// Callback used when Kill is closed/has a message.
-	OnKillAction func()
+	onKillAction func()
 
 	// A list of channels to manange and how to manage them
-	Channels []ChannelEntry
+	channels []ChannelEntry
 
 	// Aggregator used to pass through only one message at a time.
 	aggregator chan dsWrapper
@@ -62,9 +62,10 @@ type DynamicSelect struct {
 // It is assumed the handler accepts the messages written to the channel.
 // The OnClose handler is expected to have no arguments.
 type ChannelEntry struct {
-	Channel chan interface{}
-	Handler HandlerEntry
-	OnClose OnCloseEntry
+	Channel  chan interface{}
+	Handler  HandlerEntry
+	OnClose  OnCloseEntry
+	IsClosed bool
 }
 
 // HandlerEntry is a function that will be called with the message emitted
@@ -116,9 +117,9 @@ func NewDynamicSelect(onKillAction func(), channels []ChannelEntry) *DynamicSele
 	l := make(chan ChannelEntry)
 	o := make(chan dsWrapper)
 	return &DynamicSelect{
-		OnKillAction:       onKillAction,
+		onKillAction:       onKillAction,
 		load:               l,
-		Channels:           channels,
+		channels:           channels,
 		aggregator:         a,
 		alive:              true,
 		done:               d,
@@ -207,7 +208,7 @@ func (d *DynamicSelect) shutDown() {
 	close(d.done)
 
 	// Tell the outside world we're done.
-	d.OnKillAction()
+	d.onKillAction()
 
 	// Handle outstanding requests / a flood of closed messages.
 	go d.drainChannels()
@@ -265,9 +266,9 @@ func (d *DynamicSelect) allMessageState() bool {
 
 	case next := <-d.load:
 		// Grab the current len, and thus next index.
-		nextIndex := len(d.Channels)
+		nextIndex := len(d.channels)
 		// Add next
-		d.Channels = append(d.Channels, next)
+		d.channels = append(d.channels, next)
 		// Create New Listener
 		d.listenerWG.Add(1)
 		go d.startListener(nextIndex, next)
@@ -284,22 +285,30 @@ func (d *DynamicSelect) allMessageState() bool {
 
 func (d *DynamicSelect) startListeners() {
 	// For each channel and handler
-	for index, entry := range d.Channels {
+	for index, entry := range d.channels {
 		// Start a go routine with the current channel
 		d.listenerWG.Add(1)
 		go d.startListener(index, entry)
 	}
 }
 
+func (d *DynamicSelect) Channels() []ChannelEntry {
+	return d.channels
+}
+
 // Start listener either passes messages to the aggregator channels or calls handlers locally
 // Depending on the entry supplied.
 func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
+	e.IsClosed = false
 
 	// Clean up on close.
 	defer func() {
 		// We don't control the channels passed in. We may hit a runtime panic if they are closed.
 		if r := recover(); r != nil {
 			log.Printf("Recovered but exiting in DynamicSelect select listener. Likely attempted to read on a closed channel, error: %v\n", r)
+
+			// This is likely true, but a panic in a handler may trip this.
+			e.IsClosed = true
 		}
 
 		// check for Blocking
@@ -336,6 +345,7 @@ func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
 			if !ok {
 				// by returning here, we do not propegate
 				// the 0 value emmited on channel closure.
+				e.IsClosed = true
 				return
 			}
 
@@ -364,14 +374,14 @@ func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
 
 func (d *DynamicSelect) handleInternal(dsw dsWrapper) {
 	// Find the coresponding entry in the array,
-	entry := d.Channels[dsw.Index]
+	entry := d.channels[dsw.Index]
 
 	entry.Handler.Func(dsw.Target)
 }
 
 func (d *DynamicSelect) handleOnClose(dsw dsWrapper) {
 	// Find the coresponding entry in the array,
-	entry := d.Channels[dsw.Index]
+	entry := d.channels[dsw.Index]
 
 	entry.OnClose.Func()
 }
