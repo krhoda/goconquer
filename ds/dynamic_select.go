@@ -26,7 +26,10 @@ type DynamicSelect struct {
 	aggregator chan dsWrapper
 
 	// A channel used to load additional cases into the DynamicSelect during runtime.
-	load chan ChannelEntry
+	load chan []ChannelEntry
+
+	// Load guard ensures callers to DynamicSelect.Channels() get a snapshot and don't read/write the same thing.
+	loadGuard chan interface{}
 
 	// kill is used to signal DynamicSelect to halt.
 	// Internal operation ensures that once issued, a kill
@@ -46,7 +49,7 @@ type DynamicSelect struct {
 	priorityAggregator chan dsWrapper
 
 	// Aggregator used to pass through close notifications.
-	onClose chan dsWrapper
+	onClose chan closeWrapper
 
 	// alive is used to inform listeners if the main routine has exited.
 	alive bool
@@ -103,22 +106,33 @@ type dsWrapper struct {
 	Target interface{}
 }
 
+type closeWrapper struct {
+	Index int
+	Entry ChannelEntry
+}
+
 // NewDynamicSelect uses an action to take on kill command, along with a list of channels to manage and returns a fully initialize DynamicSelect.
 func NewDynamicSelect(onKillAction func(), channels []ChannelEntry) *DynamicSelect {
+	// both aggregators, on close notifier, and internal kill chan.
 	a := make(chan dsWrapper)
 	p := make(chan dsWrapper)
+	o := make(chan closeWrapper)
 	d := make(chan interface{})
+
+	// guarded channels
 	k := make(chan interface{}, 1)
 	kg := make(chan interface{}, 1)
+	l := make(chan []ChannelEntry)
+	lg := make(chan interface{}, 1)
 
-	// prime the guard.
+	// prime the guards.
 	kg <- unit
+	lg <- unit
 
-	l := make(chan ChannelEntry)
-	o := make(chan dsWrapper)
 	return &DynamicSelect{
 		onKillAction:       onKillAction,
 		load:               l,
+		loadGuard:          lg,
 		channels:           channels,
 		aggregator:         a,
 		alive:              true,
@@ -178,7 +192,7 @@ func (d *DynamicSelect) Kill() {
 
 // Load either blocks until the given ChannelEntry is loaded into a running DynamicSelect
 // or informs via error that the DynamicSelect has halted.
-func (d *DynamicSelect) Load(c ChannelEntry) error {
+func (d *DynamicSelect) Load(c []ChannelEntry) error {
 	if !d.IsAlive() {
 		return fmt.Errorf("DynamicSelect has either halted or is uninitialized.")
 	}
@@ -236,8 +250,9 @@ func (d *DynamicSelect) stateMachine() bool {
 // Then, check if any channel closed (a one-time event) in addition to priority events and the kill command.
 func (d *DynamicSelect) priorityMessageState() bool {
 	select {
-	case dsw := <-d.onClose:
-		d.handleOnClose(dsw)
+	case ocw := <-d.onClose:
+		go d.updateChannels(ocw)
+		d.handleOnClose(ocw.Index)
 		return true
 
 	case dsw := <-d.priorityAggregator:
@@ -264,23 +279,35 @@ func (d *DynamicSelect) allMessageState() bool {
 		d.handleInternal(dsw)
 		return true
 
-	case next := <-d.load:
-		// Grab the current len, and thus next index.
-		nextIndex := len(d.channels)
-		// Add next
-		d.channels = append(d.channels, next)
-		// Create New Listener
-		d.listenerWG.Add(1)
-		go d.startListener(nextIndex, next)
+	case nextList := <-d.load:
+		for _, next := range nextList {
+			<-d.loadGuard
+			// Grab the current len, and thus next index.
+			nextIndex := len(d.channels)
+			// Add next
+			d.channels = append(d.channels, next)
+			d.loadGuard <- unit
+			// Create New Listener
+			d.listenerWG.Add(1)
+			go d.startListener(nextIndex, next)
+		}
+
 		return true
 
-	case dsw := <-d.onClose:
-		d.handleOnClose(dsw)
+	case ocw := <-d.onClose:
+		go d.updateChannels(ocw)
+		d.handleOnClose(ocw.Index)
 		return true
 
 	case <-d.kill:
 		return false
 	}
+}
+
+func (d *DynamicSelect) updateChannels(ocw closeWrapper) {
+	<-d.loadGuard
+	d.channels[ocw.Index] = ocw.Entry
+	d.loadGuard <- unit
 }
 
 func (d *DynamicSelect) startListeners() {
@@ -289,11 +316,17 @@ func (d *DynamicSelect) startListeners() {
 		// Start a go routine with the current channel
 		d.listenerWG.Add(1)
 		go d.startListener(index, entry)
+		<-d.loadGuard
+		d.channels[index].IsClosed = false
+		d.loadGuard <- unit
 	}
 }
 
 func (d *DynamicSelect) Channels() []ChannelEntry {
-	return d.channels
+	<-d.loadGuard
+	c := d.channels
+	d.loadGuard <- unit
+	return c
 }
 
 // Start listener either passes messages to the aggregator channels or calls handlers locally
@@ -317,9 +350,9 @@ func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
 		}
 
 		// Otherwise pass to main handler
-		lastMessage := dsWrapper{
-			Index:  i,
-			Target: unit,
+		lastMessage := closeWrapper{
+			Index: i,
+			Entry: e,
 		}
 		d.onClose <- lastMessage
 
@@ -374,14 +407,18 @@ func (d *DynamicSelect) startListener(i int, e ChannelEntry) {
 
 func (d *DynamicSelect) handleInternal(dsw dsWrapper) {
 	// Find the coresponding entry in the array,
+	<-d.loadGuard
 	entry := d.channels[dsw.Index]
+	d.loadGuard <- unit
 
 	entry.Handler.Func(dsw.Target)
 }
 
-func (d *DynamicSelect) handleOnClose(dsw dsWrapper) {
+func (d *DynamicSelect) handleOnClose(index int) {
 	// Find the coresponding entry in the array,
-	entry := d.channels[dsw.Index]
+	<-d.loadGuard
+	entry := d.channels[index]
+	d.loadGuard <- unit
 
 	entry.OnClose.Func()
 }
@@ -413,7 +450,7 @@ func (d *DynamicSelect) drainChannels() {
 		for {
 			x, ok := <-d.onClose
 			if ok {
-				d.handleOnClose(x)
+				d.handleOnClose(x.Index)
 				continue
 			}
 			return

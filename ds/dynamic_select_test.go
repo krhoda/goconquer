@@ -220,9 +220,10 @@ func TestLoad(t *testing.T) {
 	ka := func() {
 		killActionTest = true
 	}
+	next := []ChannelEntry{unblockingChannel}
 
 	selectMgr := NewDynamicSelect(ka, []ChannelEntry{lesserChannel})
-	err := selectMgr.Load(unblockingChannel)
+	err := selectMgr.Load(next)
 	if err == nil {
 		t.Errorf("Load err was nil when it should not have been.")
 	}
@@ -232,7 +233,7 @@ func TestLoad(t *testing.T) {
 
 	lesserChannel.Channel <- unit
 
-	err = selectMgr.Load(unblockingChannel)
+	err = selectMgr.Load(next)
 	if err != nil {
 		t.Errorf("Could not load when expected to: %s", err.Error())
 	}
@@ -243,7 +244,7 @@ func TestLoad(t *testing.T) {
 	selectMgr.Kill()
 	time.Sleep(time.Second / 10)
 
-	err = selectMgr.Load(greaterChannel)
+	err = selectMgr.Load(next)
 	if err == nil {
 		t.Errorf("Load err was nil when it should not have been.")
 	}
@@ -363,5 +364,108 @@ func TestAllChannelTypes(t *testing.T) {
 
 	if !cHandClosed {
 		t.Errorf("Child listener did not clean up!")
+	}
+
+}
+
+func TestChannels(t *testing.T) {
+	defer reset()
+
+	ka := func() {}
+
+	for _, v := range fullSet {
+		close(v.Channel)
+	}
+
+	selectMgr := NewDynamicSelect(ka, fullSet)
+
+	go selectMgr.Forever(ready)
+	<-ready
+
+	time.Sleep(time.Second)
+
+	deadChannelList := selectMgr.Channels()
+	nextChannelList := []ChannelEntry{}
+	for _, v := range deadChannelList {
+		if !v.IsClosed {
+			t.Errorf("A Channel was returned open when it was closed on arrival.")
+		}
+		v.Channel = make(chan interface{}, 10)
+
+		nextChannelList = append(nextChannelList, v)
+	}
+
+	selectMgr.Kill()
+
+	selectMgr = NewDynamicSelect(ka, nextChannelList)
+	nextReady := make(chan interface{})
+	go selectMgr.Forever(nextReady)
+	<-nextReady
+
+	time.Sleep(time.Second)
+	liveChannelList := selectMgr.Channels()
+
+	for _, v := range liveChannelList {
+		if v.IsClosed {
+			t.Errorf("A Channel was returned unexpectedly closed.")
+		}
+
+		close(v.Channel)
+	}
+
+	time.Sleep(time.Second / 10)
+
+	nextDeadMap := selectMgr.Channels()
+
+	mixedList := []ChannelEntry{}
+	for i, v := range nextDeadMap {
+		if !v.IsClosed {
+			t.Errorf("A Channel was returned unexpectedly opened.")
+		}
+
+		if i%2 > 0 {
+			v.Channel = make(chan interface{}, 10)
+		}
+
+		mixedList = append(mixedList, v)
+	}
+
+	selectMgr.Kill()
+	selectMgr = NewDynamicSelect(ka, mixedList)
+	lastReady := make(chan interface{})
+	go selectMgr.Forever(lastReady)
+	<-lastReady
+
+	time.Sleep(time.Second / 10)
+
+	mixedLiveChannels := selectMgr.Channels()
+	for i, v := range mixedLiveChannels {
+		if i%2 > 0 {
+			if v.IsClosed {
+				t.Errorf("Channel in mixed list was returned unexpectedly closed.")
+			}
+			continue
+		}
+
+		if !v.IsClosed {
+			t.Errorf("Channel in mixed list returned unexpectedly opened.")
+		}
+	}
+
+	selectMgr.Kill()
+	time.Sleep(time.Second / 10)
+
+	mixedClosedChannels := selectMgr.Channels()
+	for i, v := range mixedClosedChannels {
+		if i%2 > 0 {
+			if v.IsClosed {
+				t.Errorf("Channel in mixed list was returned unexpectedly closed.")
+			}
+			continue
+		}
+
+		if !v.IsClosed {
+			t.Errorf("Channel in mixed list returned unexpectedly opened.")
+		}
 	}
 }
