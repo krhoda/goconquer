@@ -28,6 +28,13 @@ var testDownOpts = Opts{
 	CooldownSize: time.Second * 5,
 }
 
+var testFastOpts = Opts{
+	Min:          time.Microsecond,
+	Max:          time.Second * 10,
+	CooldownTick: time.Second * 3,
+	CooldownSize: time.Second * 5,
+}
+
 func TestNew(t *testing.T) {
 	badOpts := Opts{
 		Min:          time.Hour,
@@ -45,6 +52,35 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Errorf("Good opts were rejected")
 	}
+}
+
+func TestWait(t *testing.T) {
+	ex, err := NewExpoBackoffManager(testFastOpts)
+	if err != nil {
+		t.Errorf("Good opts were rejected")
+	}
+
+	go ex.Run()
+	<-ex.Ready
+
+	x := false
+
+	go func() {
+		err := ex.Wait()
+		if err != nil {
+			t.Errorf("Unexpected error in Wait: %s", err.Error())
+			return
+		}
+		x = true
+	}()
+
+	log.Println("About to sleep for 1 second buffer...")
+	time.Sleep(time.Second)
+
+	if !x {
+		t.Errorf("Waited longer than expected.")
+	}
+
 }
 
 func TestWaitAndStop(t *testing.T) {
@@ -70,7 +106,6 @@ func TestWaitAndStop(t *testing.T) {
 	<-x
 	ex.Stop()
 	<-x
-
 }
 
 func TestIncreaseBackoff(t *testing.T) {
