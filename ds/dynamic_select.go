@@ -73,7 +73,6 @@ type ChannelEntry struct {
 
 // HandlerEntry is a function that will be called with the message emitted
 // by the associated channel.
-
 type HandlerEntry struct {
 	Func func(i interface{})
 
@@ -194,11 +193,11 @@ func (d *DynamicSelect) Kill() {
 // or informs via error that the DynamicSelect has halted.
 func (d *DynamicSelect) Load(c []ChannelEntry) error {
 	if !d.IsAlive() {
-		return fmt.Errorf("DynamicSelect has either halted or is uninitialized.")
+		return fmt.Errorf("DynamicSelect has either halted or is uninitialized")
 	}
 
 	if !d.running {
-		return fmt.Errorf("DynamicSelect has not been started, this could otherwise deadlock.")
+		return fmt.Errorf("DynamicSelect has not been started, this could otherwise deadlock")
 	}
 
 	d.load <- c
