@@ -12,9 +12,14 @@ Once I've written a pattern too many times, it appears here -- documented, teste
 - [ExpoBackoffMananger](#ExpoBackoffManager)
   * [What?](#exwhat)
 
+<a name="DynamicSelect"/>
+
 ### DynamicSelect
-#### What?
+
 <a name="dswhat"/>
+
+#### What?
+
 `DynamicSelect` (`goconquer/ds`) is a easy-to-test, generic, reliable, abstraction around the golang `select` statement. It solves the following issues:
 * Can accept dynamic number of channels to listen to.
 * Can load new channels at runtime.
@@ -213,4 +218,14 @@ lastKnownChannelStatus := dysl.Channels()
 <a name="exwhat"/>
 
 #### What?
-Expo(nential)BackoffMananger is a concurrent structure run in it's own `go` routine that allows quick set up of an [exponential back-off strategy](https://en.wikipedia.org/wiki/Exponential_backoff). Configuration is dead simple. It's thread safe, but watch the [thundering herd](https://en.wikipedia.org/wiki/Thundering_herd_problem), if passing to many proccesses and consider composing a wrapper which permits batching.
+Expo(nential)BackoffMananger is a concurrent structure run in it's own `go` routine that allows quick set up of an [exponential back-off strategy](https://en.wikipedia.org/wiki/Exponential_backoff). Configuration is dead simple. It's thread safe, but watch the [thundering herd](https://en.wikipedia.org/wiki/Thundering_herd_problem), if passing to many proccesses and consider composing a wrapper which permits batching when the resource becomes available.
+
+<a name="exwhy"/>
+
+#### Why?
+One of the joys of the (likely) the first joke programming language, `INTERCAL (the compiler language with no pronouncable acronym)` was the requirement to end all programs with either `GIVE UP` or `PLEASE GIVE UP` (for [information on the](https://en.wikipedia.org/wiki/INTERCAL#Details) `PLEASE` keyword). Failure to do so, and the program would sieze all reasources on the machine -- crashing it of course-- in eagerness to complete the next task. As stupid as this all is, it is an excellent metaphor for how computers behave in request/response architecture without proper controls.
+Exponential Backoff has become my go-to solution, and this is my favorite generalization.
+
+<a name="exhow"/>
+
+#### How?
