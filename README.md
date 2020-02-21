@@ -6,14 +6,15 @@ Once I've written a pattern too many times, it appears here -- documented, teste
 * A fan-in fan-out queue, because I'm never embarassed to be [embarassingly parallel](https://en.wikipedia.org/wiki/Embarrassingly_parallel)
 
 - [DynamicSelect](#DynamicSelect)
-  * [What?](#What?)
-  * [Why?](#Why?)
-  * [How?](#How?)
+  * [What?](#dswhat)
+  * [Why?](#dswhy)
+  * [How?](#dshow)
 - [ExpoBackoffMananger](#ExpoBackoffManager)
   * [What?](#What?)
 
 ### DynamicSelect
 #### What?
+<a name="dswhat"/>
 `DynamicSelect` (`goconquer/ds`) is a easy-to-test, generic, reliable, abstraction around the golang `select` statement. It solves the following issues:
 * Can accept dynamic number of channels to listen to.
 * Can load new channels at runtime.
@@ -24,6 +25,7 @@ Once I've written a pattern too many times, it appears here -- documented, teste
 * Will never close the channels you provide. (Golang suggests the sender close channel, do what thou wilst).
 
 #### Why?
+<a name="dswhy"/>
 I originally wrote my select statements like this:
 
 ``` go
@@ -132,6 +134,7 @@ for {
 Now, everything is testable and broken in to readable bites, and one can even nest cycle calls into smaller and smaller prioritized testable pieces, creating a little functional-flow-chart-state-machine. Then I wrote this set of statements so many times I eventaully wrote this repo.
 
 #### How?
+<a name="dshow"/>
 DynamicSelect requires the channels (`data` in our example) and handlers (`g`) to use only `interface{}`. This looks like a real interesting case for `contracts` or whatever compiler-level polymorphism that Go introduces later, but for now, to use this general purpose structure (if sending data over the channel) you will need reflection. If reflection is too costly (which isn't often in my experience), consider well-typed nested `cycle`-style functions from above.
 
 To create a DynamicSelect, you will need to provide a `onKillAction` function that takes no arguments (an empty function is fine, but here is the opportunity for on-close clean up) and a slice of `ds.ChannelEntry`structs
@@ -204,4 +207,6 @@ lastKnownChannelStatus := dysl.Channels()
 ```
 
 ### ExpoBackoffManager
+<a name="ExpoBackoffManager"/>
 #### What?
+<a name="exwhat"/>
