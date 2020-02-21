@@ -10,7 +10,7 @@ Once I've written a pattern too many times, it appears here -- documented, teste
   * [Why?](#dswhy)
   * [How?](#dshow)
 - [ExpoBackoffMananger](#ExpoBackoffManager)
-  * [What?](#What?)
+  * [What?](#exwhat)
 
 ### DynamicSelect
 #### What?
@@ -207,7 +207,10 @@ lastKnownChannelStatus := dysl.Channels()
 ```
 
 <a name="ExpoBackoffManager"/>
+
 ### ExpoBackoffManager
+
 <a name="exwhat"/>
+
 #### What?
 Expo(nential)BackoffMananger is a concurrent structure run in it's own `go` routine that allows quick set up of an [exponential back-off strategy](https://en.wikipedia.org/wiki/Exponential_backoff). Configuration is dead simple. It's thread safe, but watch the [thundering herd](https://en.wikipedia.org/wiki/Thundering_herd_problem), if passing to many proccesses and consider composing a wrapper which permits batching.
