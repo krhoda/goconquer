@@ -1,10 +1,20 @@
 # goconquer
 ### Welcome to my growing concurrent toolbox!
-Once I've written a pattern too many times, it appears here -- documented, tested, and as generic as Go! will allow.
+Once I've written a pattern too many times, it appears here -- documented, tested, and as generic as Go! will allow. They include:
+* A Dynamic version of the built-in Select statement which can listen to `n` channels and have additional channels loaded at runtime.
+* An Exponential Backoff Manager, set four options, then call `.Wait()` all you like.
+* A fan-in fan-out queue, because I'm never embarassed to be [embarassingly parallel](https://en.wikipedia.org/wiki/Embarrassingly_parallel)
 
-### goconquer/ds DynamicSelect
+- [DynamicSelect](#DynamicSelect)
+  * [What?](#What?)
+  * [Why?](#Why?)
+  * [How?](#How?)
+- [ExpoBackoffMananger](#ExpoBackoffManager)
+  * [What?](#What?)
+
+### DynamicSelect
 #### What?
-`DynamicSelect` is a easy-to-test, generic, reliable, abstraction around the golang `select` statement. It solves the following issues:
+`DynamicSelect` (`goconquer/ds`) is a easy-to-test, generic, reliable, abstraction around the golang `select` statement. It solves the following issues:
 * Can accept dynamic number of channels to listen to.
 * Can load new channels at runtime.
 * Can handle the closing channels, including ill-fated attempts to read from a closed channel.
@@ -23,7 +33,7 @@ data := make(chan MySpecialStruct)
 kill := make(chan os.Signal, 1)
 signal.Notify(kill, syscall.SIGINT, syscall.SIGTERM)
 
-go worker(signal, data, kill)
+go worker(data, signal, kill)
 
 for {
 	select {
@@ -44,7 +54,7 @@ data := make(chan MySpecialStruct)
 kill := make(chan os.Signal, 1)
 signal.Notify(kill, syscall.SIGINT, syscall.SIGTERM)
 
-go worker(signal, data, kill)
+go worker(data, signal, kill)
 
 for {
 	select {
@@ -65,7 +75,7 @@ data := make(chan MySpecialStruct)
 kill := make(chan os.Signal, 1)
 signal.Notify(kill, syscall.SIGINT, syscall.SIGTERM)
 
-go worker(signal, data, kill)
+go worker(data, signal, kill)
 
 for {
 	select {
@@ -85,7 +95,7 @@ for {
 ```
 Then, for each iteration of the loop, `kill` was always checked first, so at most a kill command is missed only one iteration. By nesting selects, we can prioritize messages as well. But it's ugly, so them I wrote them this way:
 ``` go
-func cycle(k chan os.Signal, signal chan struct{}, data chan MySpecialStruct) bool {
+func cycle(data chan MySpecialStruct, signal chan struct{}, kill chan os.Signal) bool {
 	select {
 	case <-kill:
 		return false
@@ -105,7 +115,7 @@ data := make(chan MySpecialStruct)
 kill := make(chan os.Signal, 1)
 signal.Notify(kill, syscall.SIGINT, syscall.SIGTERM)
 
-go worker(signal, data, kill)
+go worker(data, signal, kill)
 
 for {
 	select {
@@ -192,3 +202,6 @@ err = dysl.Load(c)
 // but we can still access the last known state of the channels provided:
 lastKnownChannelStatus := dysl.Channels()
 ```
+
+### ExpoBackoffManager
+#### What?
