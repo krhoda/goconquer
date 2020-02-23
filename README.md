@@ -23,7 +23,7 @@ Once I've written a pattern too many times, it appears here -- documented, teste
 `DynamicSelect` (`goconquer/ds`) is a easy-to-test, generic, reliable, abstraction around the golang `select` statement. It solves the following issues:
 * Can accept dynamic number of channels to listen to.
 * Can load new channels at runtime.
-* Can handle the closing channels, including ill-fated attempts to read from a closed channel.
+* Can handle the closing of internal channels, including ill-fated attempts to read from a closed channel.
 * Always listens to kill commands.
 * Can prioritize between channels.
 * Can provide visibility into which channels are open.
@@ -177,7 +177,6 @@ Once you have a `[]ChannelEntry`, (good and bad) usage looks like this:
 ``` go
 dysl := ds.NewDynamicSelect(onKill, channels)
 isAlive := dysl.IsAlive() // false, the select isn't running
-go dysl.Forever()
 
 // Make a new channel to load in
 c := ds.ChannelEntry{...}
@@ -186,6 +185,8 @@ c := ds.ChannelEntry{...}
 err := dysl.Load(c)
 // err.Error() == "DynamicSelect has not been started, this could otherwise deadlock"
 
+// Run it in it's own routine (this is blocking)
+go dysl.Forever()
 // Wait until it is running to access it.
 <-dysl.Ready
 chs := dysl.Channels() // chs == channels.
